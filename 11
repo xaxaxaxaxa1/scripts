@@ -1,0 +1,263 @@
+function ElementFunction:AddEnhancedDropdown(DropdownConfig)
+    DropdownConfig = DropdownConfig or {}
+    DropdownConfig.Name = DropdownConfig.Name or "Enhanced Dropdown"
+    DropdownConfig.Options = DropdownConfig.Options or {}
+    DropdownConfig.Default = DropdownConfig.Default or ""
+    DropdownConfig.Multi = DropdownConfig.Multi or false
+    DropdownConfig.Searchable = DropdownConfig.Searchable or false
+    DropdownConfig.Grouped = DropdownConfig.Grouped or false
+    DropdownConfig.Icons = DropdownConfig.Icons or false
+    DropdownConfig.MaxHeight = DropdownConfig.MaxHeight or 200
+    DropdownConfig.Callback = DropdownConfig.Callback or function() end
+    DropdownConfig.Flag = DropdownConfig.Flag or nil
+    DropdownConfig.Save = DropdownConfig.Save or false
+
+    local Dropdown = {
+        Value = DropdownConfig.Multi and {} or DropdownConfig.Default,
+        Options = DropdownConfig.Options,
+        FilteredOptions = {},
+        Buttons = {},
+        Groups = {},
+        Toggled = false,
+        SearchText = "",
+        Type = "EnhancedDropdown",
+        Save = DropdownConfig.Save
+    }
+
+    local DropdownList = MakeElement("List")
+    local SearchBox, SearchContainer
+
+    if DropdownConfig.Searchable then
+        SearchBox = SetProps(MakeElement("TextBox"), {
+            Size = UDim2.new(1, -16, 1, -6),
+            Position = UDim2.new(0, 2, 0, 1),
+            BackgroundTransparency = 1,
+            TextColor3 = Color3.fromRGB(255, 255, 255),
+            PlaceholderColor3 = Color3.fromRGB(150, 150, 150),
+            PlaceholderText = "Search options...",
+            Font = Enum.Font.Gotham,
+            TextSize = 12,
+            Text = "",
+            TextXAlignment = Enum.TextXAlignment.Left
+        })
+
+        SearchContainer = AddThemeObject(SetChildren(SetProps(MakeElement("RoundFrame", Color3.fromRGB(255,255,255),0,4), {
+            Size = UDim2.new(1,-16,0,24),
+            Position = UDim2.new(0,8,0,43),
+            Visible = false,
+            Name = "SearchContainer"
+        }), {MakeElement("Stroke"), SearchBox}), "Main")
+    end
+
+    local DropdownContainer = AddThemeObject(SetProps(SetChildren(MakeElement("ScrollFrame", Color3.fromRGB(40,40,40),4), {DropdownList}), {
+        Parent = ItemParent,
+        Position = UDim2.new(0,0,0,DropdownConfig.Searchable and 70 or 38),
+        Size = UDim2.new(1,0,1,DropdownConfig.Searchable and -70 or -38),
+        ClipsDescendants = true,
+        Visible = false
+    }), "Divider")
+
+    local Click = SetProps(MakeElement("Button"), {Size = UDim2.new(1,0,1,0)})
+
+    local DropdownFrame = AddThemeObject(SetChildren(SetProps(MakeElement("RoundFrame", Color3.fromRGB(255,255,255),0,5), {
+        Size = UDim2.new(1,0,0,38),
+        Parent = ItemParent,
+        ClipsDescendants = true
+    }), {
+        DropdownConfig.Searchable and SearchContainer or MakeElement("TFrame"),
+        DropdownContainer,
+        SetProps(SetChildren(MakeElement("TFrame"), {
+            AddThemeObject(SetProps(MakeElement("Label", DropdownConfig.Name,15), {
+                Size = UDim2.new(1,-12,1,0),
+                Position = UDim2.new(0,12,0,0),
+                Font = Enum.Font.GothamBold,
+                Name = "Content"
+            }), "Text"),
+            AddThemeObject(SetProps(MakeElement("Image","rbxassetid://7072706796"), {
+                Size = UDim2.new(0,20,0,20),
+                AnchorPoint = Vector2.new(0,0.5),
+                Position = UDim2.new(1,-30,0.5,0),
+                ImageColor3 = Color3.fromRGB(240,240,240),
+                Name = "Arrow"
+            }), "TextDark"),
+            AddThemeObject(SetProps(MakeElement("Label","Select option",13), {
+                Size = UDim2.new(1,-40,1,0),
+                Position = UDim2.new(0,0,0,0),
+                Font = Enum.Font.Gotham,
+                Name = "Selected",
+                TextXAlignment = Enum.TextXAlignment.Right
+            }), "TextDark"),
+            AddThemeObject(SetProps(MakeElement("Frame"), {Size = UDim2.new(1,0,0,1), Position = UDim2.new(0,0,1,-1), Name = "Line", Visible = false}), "Stroke"),
+            Click
+        }), {Size = UDim2.new(1,0,0,38), ClipsDescendants = true, Name = "Header"}),
+        AddThemeObject(MakeElement("Stroke"), "Stroke"),
+        MakeElement("Corner")
+    }), "Second")
+
+    AddConnection(DropdownList:GetPropertyChangedSignal("AbsoluteContentSize"), function()
+        DropdownContainer.CanvasSize = UDim2.new(0,0,0,DropdownList.AbsoluteContentSize.Y)
+    end)
+
+    local function CreateOption(optionData, group)
+        local optionText, optionIcon, optionValue
+        if type(optionData) == "table" then
+            optionText = optionData.text or optionData.name or tostring(optionData.value)
+            optionIcon = optionData.icon
+            optionValue = optionData.value or optionText
+        else
+            optionText = tostring(optionData)
+            optionValue = optionData
+        end
+        local OptionBtn = AddThemeObject(SetProps(SetChildren(MakeElement("Button", Color3.fromRGB(40,40,40)), {
+            MakeElement("Corner",0,6),
+            optionIcon and SetProps(MakeElement("Image",optionIcon), {Size=UDim2.new(0,16,0,16),Position=UDim2.new(0,8,0.5,0),AnchorPoint=Vector2.new(0,0.5),Name="Icon"}) or MakeElement("TFrame"),
+            AddThemeObject(SetProps(MakeElement("Label", optionText, 13,0.4), {Position=UDim2.new(0,optionIcon and 32 or 8,0,0), Size=UDim2.new(1, optionIcon and -40 or -16, 1,0), Name="Title", TextXAlignment=Enum.TextXAlignment.Left}), "Text"),
+            DropdownConfig.Multi and AddThemeObject(SetProps(MakeElement("RoundFrame",Color3.fromRGB(60,60,60),0,2), {Size=UDim2.new(0,16,0,16),Position=UDim2.new(1,-24,0.5,0),AnchorPoint = Vector2.new(0,0.5), Name="Checkbox"}), "Stroke") or MakeElement("TFrame")
+        }), {Parent=group or DropdownContainer, Size=UDim2.new(1,0,0,28), BackgroundTransparency=1, ClipsDescendants=true}), "Divider")
+
+        AddConnection(OptionBtn.MouseButton1Click, function()
+            if DropdownConfig.Multi then
+                local index = table.find(Dropdown.Value, optionValue)
+                if index then table.remove(Dropdown.Value,index) else table.insert(Dropdown.Value,optionValue) end
+            else
+                Dropdown:Set(optionValue)
+                Dropdown.Toggled=false
+                Dropdown:UpdateVisibility()
+            end
+            Dropdown:UpdateSelection()
+            SaveCfg(game.GameId)
+        end)
+
+        AddConnection(OptionBtn.MouseEnter, function() TweenService:Create(OptionBtn, TweenInfo.new(0.15), {BackgroundTransparency=0.8}):Play() end)
+        AddConnection(OptionBtn.MouseLeave, function() local selected=DropdownConfig.Multi and table.find(Dropdown.Value, optionValue) or (Dropdown.Value==optionValue) TweenService:Create(OptionBtn, TweenInfo.new(0.15), {BackgroundTransparency=selected and 0.2 or 1}):Play() end)
+
+        Dropdown.Buttons[optionValue]=OptionBtn
+        return OptionBtn
+    end
+
+    local function CreateGroup(groupName, options)
+        local GroupFrame = SetChildren(SetProps(MakeElement("TFrame"), {
+            Size=UDim2.new(1,0,0,0),
+            Parent=DropdownContainer,
+            Name=" " .. groupName,
+            AutomaticSize=Enum.AutomaticSize.Y
+        }), {MakeElement("List",0,2)})
+        Dropdown.Groups[groupName]=GroupFrame
+        for _,option in pairs(options) do CreateOption(option, GroupFrame) end
+        return GroupFrame
+    end
+
+    local function FilterOptions()
+        if not DropdownConfig.Searchable or Dropdown.SearchText=="" then
+            for _,btn in pairs(Dropdown.Buttons) do btn.Visible=true end
+            for _,group in pairs(Dropdown.Groups) do group.Visible=true end
+            return
+        end
+        local searchLower=string.lower(Dropdown.SearchText)
+        for value,btn in pairs(Dropdown.Buttons) do
+            btn.Visible=string.find(string.lower(btn.Title.Text),searchLower)~=nil
+        end
+        for _,group in pairs(Dropdown.Groups) do
+            local hasVisible=false
+            for _,child in pairs(group:GetChildren()) do if child:IsA("TextButton") and child.Visible then hasVisible=true break end end
+            group.Visible=hasVisible
+        end
+    end
+
+    function Dropdown:UpdateSelection()
+        local selectedText=""
+        if DropdownConfig.Multi then
+            if type(self.Value)=="table" and #self.Value>0 then
+                local validValues={}
+                for _,v in pairs(self.Value) do if type(v)=="string" or type(v)=="number" then table.insert(validValues,tostring(v)) end end
+                selectedText=table.concat(validValues,", ")
+            else selectedText="Select options" end
+        else selectedText=tostring(self.Value~="" and self.Value or "Select option")
+        end
+        DropdownFrame.Header.Selected.Text=selectedText
+        for value,btn in pairs(self.Buttons) do
+            local selected=DropdownConfig.Multi and table.find(self.Value,value) or (self.Value==value)
+            TweenService:Create(btn,TweenInfo.new(0.15),{BackgroundTransparency=selected and 0.2 or 1}):Play()
+            TweenService:Create(btn.Title,TweenInfo.new(0.15),{TextTransparency=selected and 0 or 0.4}):Play()
+            if DropdownConfig.Multi and btn:FindFirstChild("Checkbox") then
+                local checkColor=selected and Color3.fromRGB(0,162,255) or Color3.fromRGB(60,60,60)
+                TweenService:Create(btn.Checkbox,TweenInfo.new(0.15),{BackgroundColor3=checkColor}):Play()
+            end
+        end
+        DropdownConfig.Callback(self.Value)
+    end
+
+    function Dropdown:UpdateVisibility()
+        local MaxElements=5
+        local searchHeight=DropdownConfig.Searchable and 32 or 0
+        DropdownContainer.Visible=self.Toggled
+        DropdownFrame.Header.Line.Visible=self.Toggled
+        if DropdownConfig.Searchable and SearchContainer then SearchContainer.Visible=self.Toggled end
+        TweenService:Create(DropdownFrame.Header.Arrow,TweenInfo.new(0.15),{Rotation=self.Toggled and 180 or 0}):Play()
+
+        local contentHeight=0
+        if self.Toggled then
+            local totalButtons=0
+            for _,btn in pairs(self.Buttons) do if btn.Visible then totalButtons=totalButtons+1 end end
+            contentHeight=math.min(totalButtons, MaxElements)*28
+        end
+
+        local totalHeight=38+searchHeight+contentHeight
+        TweenService:Create(DropdownFrame,TweenInfo.new(0.15),{Size=UDim2.new(1,0,0,totalHeight)}):Play()
+
+        for _,btn in pairs(self.Buttons) do
+            local posX=self.Toggled and (btn:FindFirstChild("Icon") and 32 or 8) or 0
+            btn.Title.Position=UDim2.new(0,posX,0,0)
+        end
+
+        if DropdownConfig.Searchable and SearchBox then
+            if self.Toggled then spawn(function() wait(0.1) SearchBox:CaptureFocus() end)
+            else SearchBox.Text=""; self.SearchText=""; FilterOptions() end
+        end
+    end
+
+    function Dropdown:Set(Value)
+        if DropdownConfig.Multi then self.Value=Value or {} else self.Value=Value or "" end
+        self:UpdateSelection()
+    end
+
+    function Dropdown:Refresh(Options,Delete)
+        if Delete then
+            for _,v in pairs(self.Buttons) do v:Destroy() end
+            for _,v in pairs(self.Groups) do v:Destroy() end
+            table.clear(self.Options); table.clear(self.Buttons); table.clear(self.Groups)
+        end
+        self.Options=Options
+        if DropdownConfig.Grouped then
+            for groupName,groupOptions in pairs(Options) do CreateGroup(groupName,groupOptions) end
+        else
+            for _,option in pairs(Options) do CreateOption(option) end
+        end
+        self:UpdateSelection()
+    end
+
+    AddConnection(Click.MouseButton1Click,function()
+        Dropdown.Toggled=not Dropdown.Toggled
+        Dropdown:UpdateVisibility()
+    end)
+
+    if DropdownConfig.Searchable and SearchBox then
+        AddConnection(SearchBox:GetPropertyChangedSignal("Text"),function()
+            Dropdown.SearchText=SearchBox.Text
+            FilterOptions()
+        end)
+        AddConnection(SearchBox.FocusLost,function()
+            if not Dropdown.Toggled then SearchBox.Text=""; Dropdown.SearchText=""; FilterOptions() end
+        end)
+    end
+
+    AddConnection(UserInputService.InputBegan,function(input,gameProcessed)
+        if gameProcessed or not Dropdown.Toggled then return end
+        if input.KeyCode==Enum.KeyCode.Escape then Dropdown.Toggled=false; Dropdown:UpdateVisibility() end
+    end)
+
+    Dropdown:Refresh(Dropdown.Options,false)
+    Dropdown:Set(Dropdown.Value)
+    if DropdownConfig.Flag then OrionLib.Flags[DropdownConfig.Flag]=Dropdown end
+    return Dropdown
+end
