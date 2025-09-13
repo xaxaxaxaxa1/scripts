@@ -1,0 +1,303 @@
+local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/firemax-x/Script/refs/heads/main/Lib')))()
+local MusicPlayer = loadstring(game:HttpGet("https://raw.githubusercontent.com/xaxaxaxaxa1/scripts/refs/heads/main/62"))()
+
+local Window = OrionLib:MakeWindow({
+    Name = "Music Player Hub", 
+    IntroText = "Loading Music Player...", 
+    IntroIcon = "rbxassetid://134867074334684", 
+    HidePremium = false, 
+    SaveConfig = true, 
+    ConfigFolder = "MusicPlayerHub", 
+    FreeMouse = true, 
+    SearchBar = ""
+})
+
+local Tab = Window:MakeTab({
+    Name = "🎵 Music Player",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+-- Mouse Mode
+Tab:AddMouseModeDropdown()
+Tab:AddSection({Name = "🎵 Music Controls"})
+
+-- Main Music Dropdown
+local MusicDropdown = Tab:AddDropdown({
+    Name = "🎧 Select Music",
+    Default = "No Music Selected",
+    Options = {"Loading..."}, -- Will be updated by MusicPlayer
+    Callback = function(Value)
+        if Value ~= "Loading..." and Value ~= "No Music Selected" then
+            MusicPlayer.playMusic(Value)
+            OrionLib:MakeNotification({
+                Name = "🎵 Now Playing",
+                Content = "Playing: " .. Value,
+                Image = "rbxassetid://4483345998",
+                Time = 3
+            })
+        end
+    end
+})
+
+-- Initialize Music Player
+MusicPlayer.initialize(MusicDropdown)
+
+Tab:AddSection({Name = "🎛️ Playback Controls"})
+
+-- Play/Pause Button
+Tab:AddButton({
+    Name = "⏯️ Play/Pause",
+    Callback = function()
+        MusicPlayer.togglePlayPause()
+        local status = MusicPlayer.isPlaying() and "Playing" or "Paused"
+        OrionLib:MakeNotification({
+            Name = "🎵 Playback",
+            Content = "Music " .. status,
+            Time = 2
+        })
+    end    
+})
+
+-- Next/Previous Buttons
+Tab:AddButton({
+    Name = "⏭️ Next Song",
+    Callback = function()
+        local success = MusicPlayer.playNext()
+        -- Only show notification after a brief delay to check if it actually worked
+        task.wait(0.3)
+        if success and MusicPlayer.getCurrentMusic() then
+            OrionLib:MakeNotification({
+                Name = "⏭️ Next",
+                Content = "♪ " .. MusicPlayer.getCurrentMusic(),
+                Time = 2
+            })
+        end
+    end    
+})
+
+Tab:AddButton({
+    Name = "⏮️ Previous Song", 
+    Callback = function()
+        if MusicPlayer.playPrevious() then
+            OrionLib:MakeNotification({
+                Name = "🎵 Previous Track",
+                Content = "Playing previous song",
+                Time = 2
+            })
+        end
+    end    
+})
+
+Tab:AddSection({Name = "🔧 Settings"})
+
+-- Volume Slider
+Tab:AddSlider({
+    Name = "🔊 Volume",
+    Min = 0,
+    Max = 1,
+    Default = 0.5,
+    Color = Color3.fromRGB(255, 100, 100),
+    Increment = 0.05,
+    ValueName = "%",
+    Callback = function(Value)
+        MusicPlayer.setVolume(Value)
+    end    
+})
+
+-- Playback Speed Slider
+Tab:AddSlider({
+    Name = "⚡ Playback Speed",
+    Min = 0.1,
+    Max = 2.5,
+    Default = 1.0,
+    Color = Color3.fromRGB(100, 255, 100),
+    Increment = 0.1,
+    ValueName = "x",
+    Callback = function(Value)
+        MusicPlayer.setPlaybackSpeed(Value)
+    end    
+})
+
+-- Reverb Slider
+Tab:AddSlider({
+    Name = "🌊 Reverb Level",
+    Min = 0,
+    Max = 20,
+    Default = 10,
+    Color = Color3.fromRGB(100, 100, 255),
+    Increment = 1,
+    ValueName = "",
+    Callback = function(Value)
+        MusicPlayer.setReverbLevel(Value)
+    end    
+})
+
+Tab:AddSection({Name = "🎚️ Mode Settings"})
+
+-- Auto Play Toggle
+Tab:AddToggle({
+    Name = "🔄 Auto Play",
+    Default = false,
+    Save = true,
+    Flag = "autoplay",
+    Callback = function(Value)
+        MusicPlayer.setAutoPlay(Value)
+    end    
+})
+
+-- Auto Play Next Toggle
+Tab:AddToggle({
+    Name = "⏭️ Auto Play Next",
+    Default = false,
+    Save = true,
+    Flag = "autoplaynext", 
+    Callback = function(Value)
+        MusicPlayer.setAutoPlayNext(Value)
+    end    
+})
+
+-- Loop Toggle
+Tab:AddToggle({
+    Name = "🔁 Loop Mode",
+    Default = false,
+    Save = true,
+    Flag = "loop",
+    Callback = function(Value)
+        MusicPlayer.setLoopMode(Value)
+    end    
+})
+
+-- Shuffle Toggle
+Tab:AddToggle({
+    Name = "🔀 Shuffle Mode", 
+    Default = false,
+    Save = true,
+    Flag = "shuffle",
+    Callback = function(Value)
+        MusicPlayer.setShuffleMode(Value)
+        if Value then
+            OrionLib:MakeNotification({
+                Name = "🔀 Shuffle Enabled",
+                Content = "Queue has been shuffled",
+                Time = 2
+            })
+        end
+    end    
+})
+
+-- Music Info Section
+Tab:AddSection({Name = "📊 Music Info"})
+
+-- Current Playing Label
+local CurrentMusicLabel = Tab:AddLabel("🎵 Current: None")
+
+-- Queue Info Label  
+local QueueInfoLabel = Tab:AddLabel("📋 Queue: 0 songs")
+
+-- Update Info Labels
+task.spawn(function()
+    while true do
+        local currentMusic = MusicPlayer.getCurrentMusic()
+        local queue = MusicPlayer.getQueue()
+        
+        CurrentMusicLabel:Set("🎵 Current: " .. (currentMusic or "None"))
+        QueueInfoLabel:Set("📋 Queue: " .. #queue .. " songs")
+        
+        task.wait(2)
+    end
+end)
+
+-- Utility Buttons Section
+Tab:AddSection({Name = "🛠️ Utilities"})
+
+-- Stop Music Button
+Tab:AddButton({
+    Name = "⏹️ Stop Music",
+    Callback = function()
+        MusicPlayer.stop()
+        OrionLib:MakeNotification({
+            Name = "⏹️ Music Stopped",
+            Content = "All music stopped",
+            Time = 2
+        })
+    end    
+})
+
+-- Refresh Music List Button
+Tab:AddButton({
+    Name = "🔄 Refresh Music List",
+    Callback = function()
+        MusicPlayer.updateDropdown()
+        OrionLib:MakeNotification({
+            Name = "🔄 List Refreshed", 
+            Content = "Music list updated",
+            Time = 2
+        })
+    end    
+})
+
+-- Show Current Queue Button
+Tab:AddButton({
+    Name = "📋 Show Queue",
+    Callback = function()
+        local queue = MusicPlayer.getQueue()
+        local queueText = #queue > 0 and table.concat(queue, ", ") or "Empty"
+        OrionLib:MakeNotification({
+            Name = "📋 Current Queue",
+            Content = queueText:sub(1, 100) .. (#queue > 3 and "..." or ""),
+            Time = 5
+        })
+    end    
+})
+
+-- Additional Tab for Advanced Features
+local AdvancedTab = Window:MakeTab({
+    Name = "⚙️ Advanced",
+    Icon = "rbxassetid://4483345998",
+    PremiumOnly = false
+})
+
+AdvancedTab:AddSection({Name = "📁 File Management"})
+
+-- Music Folder Path
+AdvancedTab:AddTextbox({
+    Name = "📂 Music Folder Path",
+    Default = "Musics",
+    TextDisappear = false,
+    Callback = function(Value)
+        if Value and Value ~= "" then
+            MusicPlayer.setMusicFolder(Value)
+            OrionLib:MakeNotification({
+                Name = "📂 Folder Changed",
+                Content = "Music folder set to: " .. Value,
+                Time = 3
+            })
+        end
+    end	  
+})
+
+AdvancedTab:AddSection({Name = "🎛️ Audio Effects"})
+
+-- Custom Keybind for Play/Pause
+AdvancedTab:AddBind({
+    Name = "⏯️ Play/Pause Keybind",
+    Default = Enum.KeyCode.Space,
+    Hold = false,
+    Callback = function()
+        MusicPlayer.togglePlayPause()
+    end    
+})
+
+-- Custom Keybind for Next Song
+AdvancedTab:AddBind({
+    Name = "⏭️ Next Song Keybind", 
+    Default = Enum.KeyCode.N,
+    Hold = false,
+    Callback = function()
+        MusicPlayer.playNext()
+    end    
+})
+
+-- Initialize the library
+OrionLib:Init()
