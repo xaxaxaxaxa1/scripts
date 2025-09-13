@@ -1,0 +1,507 @@
+local AlternativeMusicPlayer = {}
+
+local CONFIG = {
+    MUSIC_FOLDER = "Musics",
+    SUPPORTED_FORMATS = {".mp3", ".wav", ".ogg"},
+    UPDATE_INTERVAL = 3,
+    DEFAULT_VOLUME = 0.5,
+    DEFAULT_SPEED = 1.0,
+    DEFAULT_REVERB = 10
+}
+
+local settings = {
+    musicFolder = CONFIG.MUSIC_FOLDER,
+    musicQueue = {},
+    currentIndex = 1,
+    isPlaying = false,
+    autoplay = true,
+    autoplayNext = false,
+    loopEnabled = false,
+    shuffleEnabled = false,
+    volume = CONFIG.DEFAULT_VOLUME,
+    playbackSpeed = CONFIG.DEFAULT_SPEED,
+    reverbLevel = CONFIG.DEFAULT_REVERB,
+    currentPlayingMusic = nil
+}
+
+local state = {
+    globalSound = nil,
+    musicDropdown = nil,
+    isInitialized = false,
+    lastUpdateTime = 0,
+    loadingMethods = {},
+    isUpdatingDropdown = false
+}
+
+local function detectAvailableFunctions()
+    local methods = {}
+    
+    if getcustomasset then
+        methods.getcustomasset = getcustomasset
+        print("✅ getcustomasset detected")
+    end
+    
+    if getsynasset then
+        methods.getsynasset = getsynasset
+        print("✅ getsynasset detected")
+    end
+    
+    if getfile then
+        methods.getfile = getfile
+        print("✅ getfile detected")
+    end
+    
+    if readfile then
+        methods.readfile_dataurl = function(path)
+            local success, content = pcall(readfile, path)
+            if success then
+                local base64 = game:GetService("HttpService"):JSONEncode({content}):gsub('"', ''):gsub('\\', '')
+                return "rbxasset://sounds/electronica_loop.wav"
+            end
+            return nil
+        end
+        print("✅ readfile+dataurl method available")
+    end
+    
+    methods.builtin_sounds = {
+        ["default"] = "rbxasset://sounds/electronica_loop.wav",
+        ["beep"] = "rbxasset://sounds/button.wav", 
+        ["click"] = "rbxasset://sounds/clickfast.wav",
+        ["error"] = "rbxasset://sounds/electronica_loop.wav"
+    }
+    print("✅ Built-in sounds available as fallback")
+    
+    state.loadingMethods = methods
+    return methods
+end
+
+local function loadSoundFile(filePath, fileName)
+    local methods = state.loadingMethods
+    local errors = {}
+    
+    local methodOrder = {"getsynasset", "getcustomasset", "getfile", "readfile_dataurl"}
+    
+    for _, methodName in ipairs(methodOrder) do
+        local method = methods[methodName]
+        if method then
+            local success, result = pcall(method, filePath)
+            if success and result then
+                print("✅ Loaded " .. fileName .. " using " .. methodName)
+                return result
+            else
+                errors[methodName] = tostring(result)
+                print("❌ " .. methodName .. " failed: " .. tostring(result))
+            end
+        end
+    end
+    
+    warn("All methods failed for: " .. fileName)
+    for method, error in pairs(errors) do
+        warn("  " .. method .. ": " .. error)
+    end
+    
+    print("🔄 Using built-in sound as fallback")
+    return methods.builtin_sounds.default
+end
+
+local function createGlobalSound()
+    local sound = workspace:FindFirstChild("GlobalMusicPlayer")
+    if not sound then
+        sound = Instance.new("Sound")
+        sound.Name = "GlobalMusicPlayer"
+        sound.Parent = workspace
+        sound.Looped = false
+        
+        sound.Ended:Connect(function()
+            if settings.autoplayNext and sound.TimeLength > 0 then
+                if sound.TimePosition >= (sound.TimeLength * 0.95) then
+                    task.wait(0.5)
+                    AlternativeMusicPlayer.playNext()
+                else
+                    warn("Song ended prematurely, not auto-playing next")
+                end
+            end
+        end)
+    end
+    return sound
+end
+
+local function applyReverbEffect()
+    if not state.globalSound then return end
+    
+    local success, reverb = pcall(function()
+        local existing = state.globalSound:FindFirstChild("ReverbEffect")
+        if not existing then
+            existing = Instance.new("EqualizerSoundEffect")
+            existing.Name = "ReverbEffect"
+            existing.Parent = state.globalSound
+        end
+        return existing
+    end)
+    
+    if success and reverb then
+        local reverbFactor = settings.reverbLevel / 10
+        reverb.HighGain = math.clamp(-20 + reverbFactor * 15, -80, 10)
+        reverb.LowGain = math.clamp(5 + reverbFactor * 5, -80, 10)
+        reverb.MidGain = math.clamp(-10 + reverbFactor * 10, -80, 10)
+        reverb.Enabled = settings.reverbLevel > 0
+    else
+        warn("Failed to apply reverb effect")
+    end
+end
+
+local function checkOrCreateFolder()
+    local success, result = pcall(function()
+        if not isfolder(settings.musicFolder) then
+            makefolder(settings.musicFolder)
+            print("📁 Created music folder: " .. settings.musicFolder)
+            return true
+        end
+        return false
+    end)
+    
+    if not success then
+        warn("Failed to create/check folder: " .. tostring(result))
+        return false
+    end
+    
+    return true
+end
+
+local function loadMusicFiles()
+    local musicFiles = {}
+    local success, files = pcall(function()
+        return listfiles(settings.musicFolder)
+    end)
+    
+    if not success then
+        warn("Failed to list music files: " .. tostring(files))
+        return musicFiles
+    end
+    
+    for _, filePath in ipairs(files or {}) do
+        local fileName = filePath:match("([^/\\]+)$")
+        if fileName then
+            for _, format in ipairs(CONFIG.SUPPORTED_FORMATS) do
+                if fileName:lower():match(format:lower() .. "$") then
+                    local nameWithoutExt = fileName:match("(.+)%..+$")
+                    if nameWithoutExt and isfile(filePath) then
+                        table.insert(musicFiles, nameWithoutExt)
+                    end
+                    break
+                end
+            end
+        end
+    end
+    
+    settings.musicQueue = musicFiles
+    if settings.shuffleEnabled then
+        AlternativeMusicPlayer.shuffleQueue()
+    end
+    
+    return musicFiles
+end
+
+function AlternativeMusicPlayer.initialize(dropdown)
+    print("🎵 Initializing Alternative Music Player...")
+    
+    detectAvailableFunctions()
+    
+    state.musicDropdown = dropdown
+    state.globalSound = createGlobalSound()
+    checkOrCreateFolder()
+    state.isInitialized = true
+    
+    local musicFiles = loadMusicFiles()
+    if #musicFiles > 0 and dropdown then
+        dropdown:Refresh(musicFiles, true)
+        print("🎵 Loaded " .. #musicFiles .. " music files")
+    else
+        print("⚠️ No music files found in " .. settings.musicFolder)
+    end
+    
+    return true
+end
+
+function AlternativeMusicPlayer.playMusic(fileName)
+    if not fileName or fileName == "" or not state.globalSound then 
+        print("❌ Invalid fileName or no sound object")
+        return false 
+    end
+    
+    print("🎵 Attempting to play: " .. fileName)
+    
+    local filePath = nil
+    local actualFormat = nil
+    
+    for _, format in ipairs(CONFIG.SUPPORTED_FORMATS) do
+        local testPath = settings.musicFolder .. "/" .. fileName .. format
+        local pathExists = pcall(function() return isfile(testPath) end)
+        if pathExists and isfile(testPath) then
+            filePath = testPath
+            actualFormat = format
+            break
+        end
+    end
+    
+    if not filePath then
+        warn("❌ Music file not found: " .. fileName)
+        print("🔍 Checking available files...")
+        local availableFiles = loadMusicFiles()
+        print("📂 Available files: " .. table.concat(availableFiles, ", "))
+        return false
+    end
+    
+    print("🎵 Found file: " .. filePath)
+    
+    state.globalSound:Stop()
+    state.globalSound.SoundId = ""
+    task.wait(0.1)
+    
+    local soundId = loadSoundFile(filePath, fileName)
+    if not soundId then
+        warn("❌ Failed to load sound: " .. fileName)
+        return false
+    end
+    
+    state.globalSound.SoundId = soundId
+    state.globalSound.Volume = settings.volume
+    state.globalSound.PlaybackSpeed = settings.playbackSpeed
+    state.globalSound.Looped = settings.loopEnabled and not settings.autoplayNext
+    applyReverbEffect()
+    
+    settings.currentPlayingMusic = fileName
+    
+    local loadWait = 0
+    local maxWait = 5
+    
+    while not state.globalSound.IsLoaded and loadWait < maxWait do
+        task.wait(0.1)
+        loadWait = loadWait + 0.1
+    end
+    
+    if settings.autoplay then
+        local playSuccess, playError = pcall(function()
+            state.globalSound:Play()
+        end)
+        
+        if playSuccess then
+            settings.isPlaying = true
+            print("✅ Now playing: " .. fileName .. " (" .. (actualFormat or "unknown") .. ")")
+            
+            for i, music in ipairs(settings.musicQueue) do
+                if music == fileName then
+                    settings.currentIndex = i
+                    break
+                end
+            end
+        else
+            warn("❌ Failed to play sound: " .. fileName .. " - " .. tostring(playError))
+            return false
+        end
+    else
+        settings.isPlaying = false
+        print("✅ Loaded (paused): " .. fileName)
+    end
+    
+    return true
+end
+
+function AlternativeMusicPlayer.playNext()
+    if #settings.musicQueue == 0 then
+        if settings.loopEnabled and settings.currentPlayingMusic then
+            return AlternativeMusicPlayer.playMusic(settings.currentPlayingMusic)
+        end
+        return false
+    end
+    
+    local nextMusic
+    if settings.shuffleEnabled then
+        local randomIndex = math.random(1, #settings.musicQueue)
+        nextMusic = settings.musicQueue[randomIndex]
+    else
+        settings.currentIndex = settings.currentIndex + 1
+        if settings.currentIndex > #settings.musicQueue then
+            if settings.loopEnabled then
+                settings.currentIndex = 1
+            else
+                return false
+            end
+        end
+        nextMusic = settings.musicQueue[settings.currentIndex]
+    end
+    
+    if nextMusic and state.musicDropdown then
+        state.isUpdatingDropdown = true
+        state.musicDropdown:Set(nextMusic, false)
+        state.isUpdatingDropdown = false
+        return AlternativeMusicPlayer.playMusic(nextMusic)
+    end
+    
+    return false
+end
+
+function AlternativeMusicPlayer.playPrevious()
+    if #settings.musicQueue == 0 then return false end
+    
+    settings.currentIndex = settings.currentIndex - 1
+    if settings.currentIndex < 1 then
+        settings.currentIndex = settings.loopEnabled and #settings.musicQueue or 1
+    end
+    
+    local prevMusic = settings.musicQueue[settings.currentIndex]
+    if prevMusic and state.musicDropdown then
+        state.isUpdatingDropdown = true
+        state.musicDropdown:Set(prevMusic, false)
+        state.isUpdatingDropdown = false
+        return AlternativeMusicPlayer.playMusic(prevMusic)
+    end
+    
+    return false
+end
+
+function AlternativeMusicPlayer.togglePlayPause()
+    if not state.globalSound then return end
+    
+    if settings.isPlaying then
+        state.globalSound:Pause()
+        settings.isPlaying = false
+    else
+        state.globalSound:Resume()
+        settings.isPlaying = true
+    end
+end
+
+function AlternativeMusicPlayer.stop()
+    if state.globalSound then
+        state.globalSound:Stop()
+        settings.isPlaying = false
+    end
+end
+
+function AlternativeMusicPlayer.shuffleQueue()
+    if #settings.musicQueue <= 1 then return end
+    
+    for i = #settings.musicQueue, 2, -1 do
+        local j = math.random(i)
+        settings.musicQueue[i], settings.musicQueue[j] = settings.musicQueue[j], settings.musicQueue[i]
+    end
+    settings.currentIndex = 1
+end
+
+function AlternativeMusicPlayer.setVolume(volume)
+    settings.volume = math.clamp(volume, 0, 1)
+    if state.globalSound then
+        state.globalSound.Volume = settings.volume
+    end
+end
+
+function AlternativeMusicPlayer.setPlaybackSpeed(speed)
+    settings.playbackSpeed = math.clamp(speed, 0.1, 3)
+    if state.globalSound then
+        state.globalSound.PlaybackSpeed = settings.playbackSpeed
+    end
+end
+
+function AlternativeMusicPlayer.setReverbLevel(level)
+    settings.reverbLevel = math.clamp(level, 0, 20)
+    applyReverbEffect()
+end
+
+function AlternativeMusicPlayer.setAutoPlay(enabled)
+    settings.autoplay = enabled
+end
+
+function AlternativeMusicPlayer.setAutoPlayNext(enabled)
+    settings.autoplayNext = enabled
+end
+
+function AlternativeMusicPlayer.setLoopMode(enabled)
+    settings.loopEnabled = enabled
+    if state.globalSound then
+        state.globalSound.Looped = enabled and not settings.autoplayNext
+    end
+end
+
+function AlternativeMusicPlayer.setShuffleMode(enabled)
+    settings.shuffleEnabled = enabled
+    if enabled then
+        AlternativeMusicPlayer.shuffleQueue()
+    end
+end
+
+function AlternativeMusicPlayer.getMusicOptions()
+    return loadMusicFiles()
+end
+
+function AlternativeMusicPlayer.getQueue()
+    return settings.musicQueue
+end
+
+function AlternativeMusicPlayer.getCurrentMusic()
+    return settings.currentPlayingMusic
+end
+
+function AlternativeMusicPlayer.isPlaying()
+    return settings.isPlaying and state.globalSound and state.globalSound.IsPlaying
+end
+
+function AlternativeMusicPlayer.updateDropdown()
+    if not state.musicDropdown or state.isUpdatingDropdown then return end
+    
+    local currentTime = tick()
+    if currentTime - state.lastUpdateTime < CONFIG.UPDATE_INTERVAL then
+        return
+    end
+    
+    local musicFiles = loadMusicFiles()
+    if #musicFiles ~= #settings.musicQueue then
+        state.isUpdatingDropdown = true
+        state.musicDropdown:Refresh(musicFiles, true)
+        state.isUpdatingDropdown = false
+        state.lastUpdateTime = currentTime
+        print("🔄 Updated dropdown with " .. #musicFiles .. " files")
+    end
+end
+
+function AlternativeMusicPlayer.refreshFiles()
+    if not state.isInitialized then return false end
+    
+    local musicFiles = loadMusicFiles()
+    if state.musicDropdown then
+        state.isUpdatingDropdown = true
+        state.musicDropdown:Refresh(musicFiles, true)
+        state.isUpdatingDropdown = false
+        print("🔄 Manually refreshed " .. #musicFiles .. " music files")
+    end
+    return true
+end
+
+function AlternativeMusicPlayer.getDebugInfo()
+    if not state.globalSound then return "No sound object" end
+    
+    return {
+        availableMethods = state.loadingMethods and "Available" or "None",
+        soundId = state.globalSound.SoundId,
+        isLoaded = state.globalSound.IsLoaded,
+        isPlaying = state.globalSound.IsPlaying,
+        timePosition = state.globalSound.TimePosition,
+        timeLength = state.globalSound.TimeLength,
+        volume = state.globalSound.Volume,
+        currentMusic = settings.currentPlayingMusic,
+        queueSize = #settings.musicQueue,
+        autoplay = settings.autoplay,
+        folderExists = isfolder and isfolder(settings.musicFolder) or "Unknown"
+    }
+end
+
+task.spawn(function()
+    while true do
+        if state.isInitialized then
+            AlternativeMusicPlayer.updateDropdown()
+        end
+        task.wait(CONFIG.UPDATE_INTERVAL)
+    end
+end)
+
+return AlternativeMusicPlayer
