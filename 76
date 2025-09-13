@@ -1,0 +1,418 @@
+local AMP = {}
+
+local c = {
+    MUSIC_FOLDER = "Musics",
+    SUPPORTED_FORMATS = {".mp3", ".wav", ".ogg"},
+    UPDATE_INTERVAL = 3,
+    DEFAULT_VOLUME = 0.5,
+    DEFAULT_SPEED = 1.0,
+    DEFAULT_REVERB = 10
+}
+
+local s = {
+    mf = c.MUSIC_FOLDER,
+    mq = {},
+    ci = 1,
+    ip = false,
+    ap = false,
+    apn = false,
+    le = false,
+    se = false,
+    v = c.DEFAULT_VOLUME,
+    ps = c.DEFAULT_SPEED,
+    rl = c.DEFAULT_REVERB,
+    cpm = nil
+}
+
+local st = {
+    gs = nil,
+    md = nil,
+    init = false,
+    lut = 0
+}
+
+local function cgs()
+    local snd = workspace:FindFirstChild("GlobalMusicPlayer")
+    if not snd then
+        snd = Instance.new("Sound")
+        snd.Name = "GlobalMusicPlayer"
+        snd.Parent = workspace
+        snd.Looped = false
+        
+        snd.Ended:Connect(function()
+            if s.apn and snd.TimeLength > 0 then
+                if snd.TimePosition >= (snd.TimeLength * 0.95) then
+                    task.wait(0.5)
+                    AMP.PlayNext()
+                end
+            end
+        end)
+    end
+    return snd
+end
+
+local function are()
+    if not st.gs then return end
+    
+    local success, reverb = pcall(function()
+        local ex = st.gs:FindFirstChild("ReverbEffect")
+        if not ex then
+            ex = Instance.new("EqualizerSoundEffect")
+            ex.Name = "ReverbEffect"
+            ex.Parent = st.gs
+        end
+        return ex
+    end)
+    
+    if success and reverb then
+        local rf = s.rl / 10
+        reverb.HighGain = math.clamp(-20 + rf * 15, -80, 10)
+        reverb.LowGain = math.clamp(5 + rf * 5, -80, 10)
+        reverb.MidGain = math.clamp(-10 + rf * 10, -80, 10)
+        reverb.Enabled = s.rl > 0
+    end
+end
+
+local function cocf()
+    local success, result = pcall(function()
+        if not isfolder(s.mf) then
+            makefolder(s.mf)
+            return true
+        end
+        return false
+    end)
+    
+    if not success then
+        return false
+    end
+    
+    return true
+end
+
+local function lmf()
+    local mf = {}
+    local success, files = pcall(function()
+        return listfiles(s.mf)
+    end)
+    
+    if not success then
+        return mf
+    end
+    
+    for _, fp in ipairs(files or {}) do
+        local fn = fp:match("([^/\\]+)$")
+        if fn then
+            for _, fmt in ipairs(c.SUPPORTED_FORMATS) do
+                if fn:lower():match(fmt:lower() .. "$") then
+                    local nwe = fn:match("(.+)%..+$")
+                    if nwe then
+                        table.insert(mf, nwe)
+                    end
+                    break
+                end
+            end
+        end
+    end
+    
+    if #s.mq == 0 or #mf ~= #s.mq then
+        s.mq = {table.unpack(mf)}
+        if s.se then
+            AMP.ShuffleQueue()
+        end
+    end
+    
+    return mf
+end
+
+local function lsf(fp, fn)
+    local sid = nil
+    
+    if getcustomasset then
+        local success, result = pcall(getcustomasset, fp)
+        if success and result then
+            return result
+        end
+    end
+    
+    if getsynasset then
+        local success, result = pcall(getsynasset, fp)
+        if success and result then
+            return result
+        end
+    end
+    
+    if getfile then
+        local success, result = pcall(getfile, fp)
+        if success and result then
+            return result
+        end
+    end
+    
+    return "rbxasset://sounds/electronica_loop.wav"
+end
+
+function AMP.initialize(dropdown)
+    st.md = dropdown
+    st.gs = cgs()
+    cocf()
+    st.init = true
+    
+    local mf = lmf()
+    if #mf > 0 and dropdown then
+        dropdown:Refresh(mf, true)
+    end
+    
+    return true
+end
+
+function AMP.PlayMusic(fn)
+    if not fn or not st.gs then return false end
+    
+    local fp = nil
+    local af = nil
+    for _, fmt in ipairs(c.SUPPORTED_FORMATS) do
+        local tp = s.mf .. "/" .. fn .. fmt
+        if isfile(tp) then
+            fp = tp
+            af = fmt
+            break
+        end
+    end
+    
+    if not fp then
+        return false
+    end
+    
+    st.gs:Stop()
+    st.gs.SoundId = ""
+    task.wait(0.1)
+    
+    local sid = lsf(fp, fn)
+    if not sid then
+        return false
+    end
+    
+    st.gs.SoundId = sid
+    st.gs.Volume = s.v
+    st.gs.PlaybackSpeed = s.ps
+    st.gs.Looped = s.le and not s.apn
+    are()
+    
+    s.cpm = fn
+    
+    for i = 1, #s.mq do
+        if s.mq[i] == fn then
+            s.ci = i
+            break
+        end
+    end
+    
+    local lw = 0
+    local mw = 10
+    
+    while not st.gs.IsLoaded and lw < mw do
+        task.wait(0.1)
+        lw = lw + 0.1
+    end
+    
+    if s.ap then
+        local ps = pcall(function()
+            st.gs:Play()
+        end)
+        
+        if ps then
+            s.ip = true
+        else
+            return false
+        end
+    else
+        s.ip = false
+    end
+    
+    return true
+end
+
+function AMP.PlayNext()
+    if #s.mq == 0 then
+        if s.le and s.cpm then
+            return AMP.PlayMusic(s.cpm)
+        end
+        return false
+    end
+    
+    local nm
+    if s.se then
+        local ri = math.random(1, #s.mq)
+        nm = s.mq[ri]
+    else
+        s.ci = s.ci + 1
+        if s.ci > #s.mq then
+            if s.le then
+                s.ci = 1
+            else
+                return false
+            end
+        end
+        nm = s.mq[s.ci]
+    end
+    
+    if nm and st.md then
+        st.md:Set(nm)
+        return AMP.PlayMusic(nm)
+    end
+    
+    return false
+end
+
+function AMP.PlayPrevious()
+    if #s.mq == 0 then return false end
+    
+    s.ci = s.ci - 1
+    if s.ci < 1 then
+        s.ci = s.le and #s.mq or 1
+    end
+    
+    local pm = s.mq[s.ci]
+    if pm and st.md then
+        st.md:Set(pm)
+        return AMP.PlayMusic(pm)
+    end
+    
+    return false
+end
+
+function AMP.TogglePlayPause()
+    if not st.gs then return end
+    
+    if s.ip then
+        st.gs:Pause()
+        s.ip = false
+    else
+        st.gs:Resume()
+        s.ip = true
+    end
+end
+
+function AMP.Stop()
+    if st.gs then
+        st.gs:Stop()
+        s.ip = false
+    end
+end
+
+function AMP.ShuffleQueue()
+    if #s.mq <= 1 then return end
+    
+    for i = #s.mq, 2, -1 do
+        local j = math.random(i)
+        s.mq[i], s.mq[j] = s.mq[j], s.mq[i]
+    end
+    s.ci = 1
+end
+
+function AMP.SetVolume(volume)
+    s.v = math.clamp(volume, 0, 1)
+    if st.gs then
+        st.gs.Volume = s.v
+    end
+end
+
+function AMP.SetPlaybackSpeed(speed)
+    s.ps = math.clamp(speed, 0.1, 3)
+    if st.gs then
+        st.gs.PlaybackSpeed = s.ps
+    end
+end
+
+function AMP.SetReverbLevel(level)
+    s.rl = math.clamp(level, 0, 20)
+    are()
+end
+
+function AMP.SetAutoPlay(enabled)
+    s.ap = enabled
+end
+
+function AMP.SetAutoPlayNext(enabled)
+    s.apn = enabled
+end
+
+function AMP.SetLoopMode(enabled)
+    s.le = enabled
+    if st.gs then
+        st.gs.Looped = enabled and not s.apn
+    end
+end
+
+function AMP.SetShuffleMode(enabled)
+    s.se = enabled
+    if enabled then
+        AMP.ShuffleQueue()
+    end
+end
+
+function AMP.GetMusicOptions()
+    return lmf()
+end
+
+function AMP.GetQueue()
+    return s.mq
+end
+
+function AMP.GetCurrentMusic()
+    return s.cpm
+end
+
+function AMP.IsPlaying()
+    return s.ip and st.gs and st.gs.IsPlaying
+end
+
+function AMP.UpdateDropdown()
+    if not st.md then return end
+    
+    local ct = tick()
+    if ct - st.lut < c.UPDATE_INTERVAL then
+        return
+    end
+    
+    local mf = lmf()
+    st.md:Refresh(mf, true)
+    st.lut = ct
+end
+
+function AMP.GetDebugInfo()
+    if not st.gs then return "No sound object" end
+    
+    return {
+        soundId = st.gs.SoundId,
+        isLoaded = st.gs.IsLoaded,
+        isPlaying = st.gs.IsPlaying,
+        timePosition = st.gs.TimePosition,
+        timeLength = st.gs.TimeLength,
+        volume = st.gs.Volume,
+        currentMusic = s.cpm,
+        queueSize = #s.mq
+    }
+end
+
+task.spawn(function()
+    while true do
+        if st.init then
+            AMP.UpdateDropdown()
+            
+            -- Monitor auto play next
+            if s.apn and st.gs and s.ip then
+                if st.gs.IsLoaded and st.gs.TimeLength > 0 then
+                    if st.gs.TimePosition >= st.gs.TimeLength - 0.1 then
+                        s.ip = false
+                        task.wait(0.1)
+                        AMP.PlayNext()
+                    end
+                end
+            end
+        end
+        task.wait(0.5)
+    end
+end)
+
+return AMP
